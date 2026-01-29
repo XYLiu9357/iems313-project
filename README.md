@@ -10,7 +10,7 @@ matplotlib
 openpyxl
 ```
 
-I recommend this video if you need help with this `https://www.youtube.com/watch?v=sDCtY9Z1bqE`.
+I recommend [this video](https://www.youtube.com/watch?v=sDCtY9Z1bqE) if you need help setting up the environment.
 
 ## How to run the program
 
