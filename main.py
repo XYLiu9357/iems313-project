@@ -178,6 +178,8 @@ if __name__ == "__main__":
 
     mv_cable_options = [CableType("mv1", 58.29, 1110), CableType("mv2", 90.87, 1515)]
     hv_cable_options = [CableType("hv1", 404.67, 1926), CableType("hv2", 490.41, 2475)]
+
+    # SENSITIVITY ANALYSIS: CHANGE ME
     hv_transformers = [
         TransformerType("tr1", 180, 3.09e6),
         TransformerType("tr2", 360, 5.16e6),
