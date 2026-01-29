@@ -11,7 +11,7 @@ def compute_export_cost(
     mv_cables: list[CableType],
     hv_cables: list[CableType] | None,
     transformers: list[TransformerType] | None,
-) -> float:
+) -> tuple[float, dict[str, int] | None]:
     """
     Compute export system cost from CCP to onshore.
       - MV-only export
@@ -26,7 +26,7 @@ def compute_export_cost(
 
     # If HV not available, MV is the only option
     if hv_cables is None or transformers is None:
-        return mv_cost
+        return mv_cost, None
 
     # HV cable cost
     hv_cable, hv_num = select_cable_bundle(total_power, hv_cables)
@@ -48,10 +48,64 @@ def compute_export_cost(
 
     transformer_cost = dp[max_power]
     if transformer_cost == INF:
-        return mv_cost
+        return mv_cost, None
 
+    # DP path reconstruction
+    transformer_usage: dict[str, int] = {}
+    cur_power = max_power
+    remaining_cost = transformer_cost
+    while cur_power > 0:
+        best_prev_power = -1
+        best_transformer = None
+        for tr in transformers:
+            tr_power = int(tr.rated_power)
+            prev_power = cur_power - tr_power
+            if prev_power < 0:
+                prev_power = 0
+
+            # If dp[prev_power] + tr.cost equals dp[current_power],
+            # this transformer could have been used
+            if prev_power <= cur_power and dp[prev_power] + tr.cost == remaining_cost:
+                best_prev_power = prev_power
+                best_transformer = tr
+                break
+
+        if best_transformer is None:
+            # If no exact match found, try to find the closest
+            for tr in transformers:
+                tr_power = int(tr.rated_power)
+                prev_power = cur_power - tr_power
+                if prev_power < 0:
+                    prev_power = 0
+
+                # Check if this step is feasible (cost-wise)
+                if (
+                    prev_power <= cur_power
+                    and dp[prev_power] + tr.cost <= remaining_cost + 1e-9
+                ):  # Allow floating point tolerance
+                    best_prev_power = prev_power
+                    best_transformer = tr
+                    break
+
+        if best_transformer is None:
+            raise RuntimeError(
+                "Unable to reconstruct path for best transformer combination"
+            )
+
+        # Record the transformer usage
+        tr_name = best_transformer.name
+        transformer_usage[tr_name] = transformer_usage.get(tr_name, 0) + 1
+
+        # Move to previous state
+        remaining_cost -= best_transformer.cost
+        cur_power = best_prev_power
+
+    # Return HV cost if it is better
     hv_total_cost = hv_cable_cost + transformer_cost
-    return min(mv_cost, hv_total_cost)
+    if mv_cost <= hv_total_cost:
+        return mv_cost, None
+    else:
+        return hv_total_cost, transformer_usage
 
 
 def total_system_cost(
@@ -62,7 +116,7 @@ def total_system_cost(
     hv_cables: list[CableType] | None,
     transformers: list[TransformerType] | None,
     turbine_power: float,
-) -> float:
+) -> tuple[float, dict[str, int] | None]:
     """
     Stage 1 (collection) + Stage 2 (export) cost,
     with CCP feasibility constraint.
@@ -80,9 +134,9 @@ def total_system_cost(
         return True
 
     if not is_ccp_feasible(ccp_x, ccp_y, turbines):
-        return float("inf")
+        return float("inf"), None
 
-    ccp = CCP(0, ccp_x, ccp_y)
+    ccp = CCP(0, ccp_x, ccp_y, None)
 
     # Stage 1: Collection
     _, collection_cost = design_collection_network(
@@ -92,8 +146,7 @@ def total_system_cost(
     # Stage 2: Export
     onshore = Node(-1, 0.0, 0.0)
     total_power = turbine_power * len(turbines)
-
-    export_cost = compute_export_cost(
+    export_cost, transformer_usage = compute_export_cost(
         ccp,
         onshore,
         total_power,
@@ -101,8 +154,7 @@ def total_system_cost(
         hv_cables,
         transformers,
     )
-
-    return collection_cost + export_cost
+    return collection_cost + export_cost, transformer_usage
 
 
 def optimize_ccp_on_ray(
@@ -128,7 +180,7 @@ def optimize_ccp_on_ray(
             hv_cables,
             transformers,
             turbine_power,
-        )
+        )[0]
 
     lo, hi = 0.0, 1.0
     while hi - lo > tol:
@@ -141,4 +193,15 @@ def optimize_ccp_on_ray(
             lo = m1
 
     t_opt = 0.5 * (lo + hi)
-    return CCP(0, t_opt * cx, t_opt * cy)
+
+    # Build final CCP
+    _, transformer_usage = total_system_cost(
+        t_opt * cx,
+        t_opt * cy,
+        turbines,
+        mv_cables,
+        hv_cables,
+        transformers,
+        turbine_power,
+    )
+    return CCP(0, t_opt * cx, t_opt * cy, transformer_usage)

@@ -12,7 +12,7 @@ class CableType:
 @dataclass
 class TransformerType:
     name: str
-    rated_power: float
+    rated_power: int
     cost: float
 
 
@@ -38,11 +38,10 @@ class Edge:
     cable_type: CableType | None = None
     num_cables: int = 0
 
+    def get_dist(self) -> float:
+        return get_dist(self.node1, self.node2)
+
     def get_cost(self) -> float:
         if self.cable_type is None:
             return 0.0
-        return (
-            self.num_cables
-            * self.cable_type.cost_per_meter
-            * get_dist(self.node1, self.node2)
-        )
+        return self.num_cables * self.cable_type.cost_per_meter * self.get_dist()

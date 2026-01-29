@@ -22,9 +22,12 @@ class Turbine(Node):
 
 
 class CCP(Node):
-    def __init__(self, node_id: int, x: float, y: float) -> None:
+    def __init__(
+        self, node_id: int, x: float, y: float, transformer_usage: dict[str, int] | None
+    ) -> None:
         super().__init__(node_id, x, y)
         self.connected_turbines: list[Turbine] = []
+        self.transformer_usage: dict[str, int] | None = transformer_usage
 
     def connect_to_turbine(self, turbine: Turbine) -> None:
         self.connected_turbines.append(turbine)
